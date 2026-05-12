@@ -1,0 +1,20 @@
+{
+    "_README": "Это образец эталонной разметки. Удалите этот ключ перед использованием. Положите файлы в benchmark/files/ и опишите ожидаемые ошибки ниже.",
+
+    "example_code.py": {
+        "true_issues": [
+            {"line": 1, "code": "E401"},
+            {"line": 2, "code": "F401"},
+            {"line": 5, "code": "E225"}
+        ]
+    },
+
+    "example_document.docx": {
+        "true_issues": [
+            {"code": "FONT_MISMATCH"},
+            {"code": "FONT_SIZE_MISMATCH"},
+            {"code": "MARGIN_MISMATCH"},
+            {"code": "LINE_SPACING_MISMATCH"}
+        ]
+    }
+}

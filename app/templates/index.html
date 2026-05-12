@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartDoc & Code Review</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css?v=6.5">
+    <script>
+        (function(){
+            var t = localStorage.getItem('smartdoc-theme');
+            if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+</head>
+<body>
+    <div class="grain"></div>
+    <div class="ambient ambient--1"></div>
+    <div class="ambient ambient--2"></div>
+
+    <header class="masthead">
+        <div class="masthead__row">
+            <div class="masthead__brand">
+                <span class="brand-mark">SD/CR</span>
+                <span class="brand-divider"></span>
+                <span class="brand-meta">v6.0</span>
+            </div>
+            <div class="masthead__right">
+                <nav class="masthead__nav">
+                    <a href="#about">О сервисе</a>
+                    <a href="#how">Как работает</a>
+                </nav>
+                <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Переключить тему">
+                    <svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="masthead__hero">
+            <p class="eyebrow">Веб-платформа для автоматической проверки</p>
+            <h1 class="display">
+                <span class="display__line">SmartDoc</span>
+                <span class="display__amp">&amp;</span>
+                <span class="display__line display__line--accent">Code Review</span>
+            </h1>
+            <p class="lede">
+                Загрузите Python-скрипт или документ <code>.docx</code> — получите подробный отчёт
+                о нарушениях стандарта <strong>PEP&nbsp;8</strong> и требований нормоконтроля
+                <strong>ГОСТ/АГУ</strong>. Автоисправление в один клик. Экспорт в PDF.
+            </p>
+            <div class="badges">
+                <span class="badge badge--stagger-1"><span class="dot dot--green"></span>flake8 + autopep8</span>
+                <span class="badge badge--stagger-2"><span class="dot dot--amber"></span>python-docx</span>
+                <span class="badge badge--stagger-3"><span class="dot dot--blue"></span>FastAPI</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section class="upload-section" id="upload">
+            <div class="upload-card" id="dropzone">
+                <input type="file" id="file-input" accept=".py,.docx" hidden>
+                <div class="upload-card__inner" id="upload-idle">
+                    <div class="upload-card__icon-ring">
+                        <svg viewBox="0 0 48 48" width="48" height="48">
+                            <path d="M24 32 L24 8" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+                            <path d="M16 16 L24 8 L32 16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M8 38 L8 42 L40 42 L40 38" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <h2 class="upload-card__title">Перетащите файл сюда</h2>
+                    <p class="upload-card__subtitle">или <button type="button" class="link-button" id="browse-button">выберите вручную</button></p>
+                    <div class="upload-card__formats">
+                        <span class="format-chip">.py</span>
+                        <span class="format-chip">.docx</span>
+                        <span class="format-meta">до 5 МБ</span>
+                    </div>
+                    <div class="upload-card__divider"></div>
+                    <div class="paste-area" id="paste-area">
+                        <button type="button" class="paste-area__toggle" id="paste-toggle">
+                            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                            Или вставьте код
+                        </button>
+                    </div>
+                </div>
+                <div class="paste-area__editor" id="paste-editor" hidden>
+                    <textarea class="paste-area__textarea" id="paste-textarea" placeholder="Вставьте Python-код сюда…" spellcheck="false"></textarea>
+                    <div class="paste-area__actions">
+                        <button type="button" class="primary-button primary-button--small" id="paste-check">Проверить</button>
+                        <button type="button" class="ghost-button ghost-button--small" id="paste-clear">Очистить</button>
+                    </div>
+                </div>
+                <div class="upload-card__inner" id="upload-loading" hidden>
+                    <div class="loader">
+                        <div class="loader__ring"></div>
+                        <div class="loader__ring"></div>
+                        <div class="loader__ring"></div>
+                    </div>
+                    <p class="upload-card__title">Анализируем…</p>
+                    <p class="upload-card__subtitle" id="loading-filename">file.py</p>
+                </div>
+            </div>
+            <p class="upload-note">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
+                Файлы удаляются сразу после анализа — ничего не хранится на сервере.
+            </p>
+            <button type="button" class="rules-toggle" id="rules-toggle">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="10" cy="10" r="3"/><path d="M10 1v2M10 17v2M1 10h2M17 10h2M3.93 3.93l1.41 1.41M14.66 14.66l1.41 1.41M3.93 16.07l1.41-1.41M14.66 5.34l1.41-1.41"/></svg>
+                Правила проверки .docx
+                <span class="rules-toggle__preset" id="rules-preset-label">АГУ (ГОСТ)</span>
+            </button>
+        </section>
+
+        <section class="report-section" id="report-section" hidden>
+            <header class="report-header">
+                <div class="report-header__file">
+                    <span class="file-type-badge" id="report-type">PY</span>
+                    <div>
+                        <h3 class="report-header__name" id="report-filename"></h3>
+                        <p class="report-header__sub" id="report-subtitle"></p>
+                    </div>
+                </div>
+                <button type="button" class="ghost-button" id="reset-button">
+                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l14 14M15 1L1 15"/></svg>
+                    Новый файл
+                </button>
+            </header>
+
+            <div class="report-actions">
+                <button type="button" class="primary-button" id="autofix-button">
+                    <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 3l-8 8M8 11l-5 5M16 3l-3 7-4-4 7-3z"/></svg>
+                    Скачать исправленный файл
+                </button>
+                <button type="button" class="primary-button primary-button--secondary" id="pdf-button">
+                    <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6z"/><polyline points="14 2 14 6 18 6"/></svg>
+                    Скачать отчёт PDF
+                </button>
+            </div>
+
+            <div class="report-summary">
+                <article class="stat stat--total"><span class="stat__value" id="stat-total">0</span><span class="stat__label">всего</span></article>
+                <article class="stat stat--high"><span class="stat__value" id="stat-high">0</span><span class="stat__label">критичных</span><div class="stat__bar stat__bar--high"></div></article>
+                <article class="stat stat--medium"><span class="stat__value" id="stat-medium">0</span><span class="stat__label">средних</span><div class="stat__bar stat__bar--medium"></div></article>
+                <article class="stat stat--low"><span class="stat__value" id="stat-low">0</span><span class="stat__label">незначительных</span><div class="stat__bar stat__bar--low"></div></article>
+            </div>
+
+            <div class="severity-bar" id="severity-bar">
+                <div class="severity-bar__segment severity-bar__segment--high" id="sev-bar-high"></div>
+                <div class="severity-bar__segment severity-bar__segment--medium" id="sev-bar-medium"></div>
+                <div class="severity-bar__segment severity-bar__segment--low" id="sev-bar-low"></div>
+            </div>
+
+            <div class="source-viewer" id="source-viewer" hidden>
+                <div class="source-viewer__header">
+                    <div class="source-viewer__title">
+                        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="14 16 20 10 14 4"/><polyline points="6 4 0 10 6 16"/></svg>
+                        Исходный код
+                    </div>
+                    <div class="source-viewer__legend">
+                        <span class="source-viewer__legend-item source-viewer__legend-item--high"><span class="source-viewer__legend-dot"></span>критичные</span>
+                        <span class="source-viewer__legend-item source-viewer__legend-item--medium"><span class="source-viewer__legend-dot"></span>средние</span>
+                        <span class="source-viewer__legend-item source-viewer__legend-item--low"><span class="source-viewer__legend-dot"></span>незначительные</span>
+                    </div>
+                </div>
+                <div class="source-viewer__minimap" id="source-minimap"></div>
+                <div class="source-viewer__code" id="source-code"></div>
+            </div>
+
+            <div class="report-body" id="report-body"></div>
+        </section>
+
+        <section class="info-grid" id="about">
+            <article class="info-card">
+                <div class="info-card__icon-wrap">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                </div>
+                <h3 class="info-card__title">Проверка кода</h3>
+                <p class="info-card__text">
+                    Полный набор правил <strong>PEP&nbsp;8</strong>: отступы, длина строк, пустые строки,
+                    пробелы, именование, неиспользуемые импорты. Автоисправление одной кнопкой.
+                </p>
+            </article>
+            <article class="info-card">
+                <div class="info-card__icon-wrap">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                </div>
+                <h3 class="info-card__title">Нормоконтроль</h3>
+                <p class="info-card__text">
+                    Times New Roman 14pt, интервал 1.5, отступ 1.25 см, поля 3/1.5/2/2 см.
+                    Подписи к таблицам и рисункам. Список литературы. Автоисправление оформления.
+                </p>
+            </article>
+            <article class="info-card" id="how">
+                <div class="info-card__icon-wrap">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>
+                </div>
+                <h3 class="info-card__title">Как это работает</h3>
+                <p class="info-card__text">
+                    Загружаете файл → сервер запускает анализ → получаете отчёт с подсветкой
+                    проблемных строк → скачиваете исправленный файл или PDF-отчёт.
+                </p>
+            </article>
+        </section>
+
+        <section class="history-section" id="history-section">
+            <div class="history-header">
+                <h2 class="history-title">История проверок</h2>
+                <button type="button" class="ghost-button ghost-button--small" id="clear-history-button">Очистить</button>
+            </div>
+            <div class="history-list" id="history-list">
+                <p class="history-empty" id="history-empty">Проверок ещё не было. Загрузите файл выше.</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Rules Modal -->
+    <div class="modal-overlay" id="rules-modal" hidden>
+        <div class="modal">
+            <div class="modal__header">
+                <h2 class="modal__title">Правила проверки .docx</h2>
+                <button type="button" class="modal__close" id="rules-modal-close" aria-label="Закрыть">&times;</button>
+            </div>
+            <div class="modal__body">
+                <div class="rules-presets">
+                    <label class="rules-label">Пресет</label>
+                    <div class="preset-chips" id="preset-chips">
+                        <button type="button" class="preset-chip is-active" data-preset="agu">АГУ (ГОСТ)</button>
+                        <button type="button" class="preset-chip" data-preset="custom">Свои правила</button>
+                    </div>
+                </div>
+                <div class="rules-fields" id="rules-fields">
+                    <div class="rules-row">
+                        <div class="rules-field">
+                            <label class="rules-label" for="rule-font">Шрифт</label>
+                            <input type="text" class="rules-input" id="rule-font" value="Times New Roman">
+                        </div>
+                        <div class="rules-field">
+                            <label class="rules-label" for="rule-font-size">Кегль (пт)</label>
+                            <input type="number" class="rules-input" id="rule-font-size" value="14" min="8" max="28" step="0.5">
+                        </div>
+                    </div>
+                    <div class="rules-row">
+                        <div class="rules-field">
+                            <label class="rules-label" for="rule-spacing">Интервал</label>
+                            <input type="number" class="rules-input" id="rule-spacing" value="1.5" min="1" max="3" step="0.25">
+                        </div>
+                        <div class="rules-field">
+                            <label class="rules-label" for="rule-indent">Красная строка (см)</label>
+                            <input type="number" class="rules-input" id="rule-indent" value="1.25" min="0" max="5" step="0.25">
+                        </div>
+                    </div>
+                    <label class="rules-label" style="margin-top:12px">Поля страницы (см)</label>
+                    <div class="rules-row rules-row--4">
+                        <div class="rules-field">
+                            <label class="rules-label rules-label--small" for="rule-m-left">Левое</label>
+                            <input type="number" class="rules-input" id="rule-m-left" value="3" min="0" max="10" step="0.5">
+                        </div>
+                        <div class="rules-field">
+                            <label class="rules-label rules-label--small" for="rule-m-right">Правое</label>
+                            <input type="number" class="rules-input" id="rule-m-right" value="1.5" min="0" max="10" step="0.5">
+                        </div>
+                        <div class="rules-field">
+                            <label class="rules-label rules-label--small" for="rule-m-top">Верхнее</label>
+                            <input type="number" class="rules-input" id="rule-m-top" value="2" min="0" max="10" step="0.5">
+                        </div>
+                        <div class="rules-field">
+                            <label class="rules-label rules-label--small" for="rule-m-bottom">Нижнее</label>
+                            <input type="number" class="rules-input" id="rule-m-bottom" value="2" min="0" max="10" step="0.5">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal__footer">
+                <button type="button" class="primary-button" id="rules-save">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="footer__row">
+            <div class="footer__col">
+                <span class="footer__brand">SD/CR</span>
+                <span class="footer__copy">SmartDoc &amp; Code Review</span>
+            </div>
+            <div class="footer__col footer__col--center">
+                <p>Данил Полстянов</p>
+                <a href="mailto:poncikovdanila@gmail.com" class="footer__email">poncikovdanila@gmail.com</a>
+            </div>
+            <div class="footer__col footer__col--right">
+                <p>АГУ им. В.&nbsp;Н.&nbsp;Татищева</p>
+                <p class="footer__dim">Направление 09.03.02 · 2026</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="/static/app.js?v=6.5"></script>
+</body>
+</html>
