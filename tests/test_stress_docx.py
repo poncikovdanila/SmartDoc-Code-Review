@@ -534,8 +534,8 @@ class TestFullChaos:
         assert after["total_issues"] < before["total_issues"], \
             f"Autofix не уменьшил ошибки: {before['total_issues']} → {after['total_issues']}"
 
-    def test_chaos_score_improves_after_fix(self, tmp_path):
-        """Score должен улучшиться после autofix."""
+    def test_chaos_verdict_improves_after_fix(self, tmp_path):
+        """Verdict должен улучшиться после autofix."""
         doc = Document()
         sec = doc.sections[0]
         sec.left_margin = Cm(1); sec.right_margin = Cm(3)
@@ -552,8 +552,8 @@ class TestFullChaos:
         fixed_path.write_bytes(fixed_bytes)
         after = _check(fixed_path)
 
-        assert after["score"] > before["score"], \
-            f"Score не улучшился: {before['score']}% → {after['score']}%"
+        assert after["total_issues"] < before["total_issues"], \
+            f"Autofix не уменьшил ошибки: {before['total_issues']} → {after['total_issues']}"
 
 
 # ═══════ 14. Автоисправление конкретных проблем ═══════

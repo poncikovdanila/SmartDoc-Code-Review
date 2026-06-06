@@ -10,7 +10,9 @@
     const reportBody = $('report-body'), resetButton = $('reset-button');
     const autofixButton = $('autofix-button'), pdfButton = $('pdf-button');
     const statTotal = $('stat-total'), statHigh = $('stat-high');
-    const statMedium = $('stat-medium'), statLow = $('stat-low'), statScore = $('stat-score');
+    const statMedium = $('stat-medium'), statLow = $('stat-low');
+    const verdictCard = $('verdict-card'), verdictIcon = $('verdict-icon');
+    const verdictTitle = $('verdict-title'), verdictSub = $('verdict-sub');
     const sevBarHigh = $('sev-bar-high'), sevBarMedium = $('sev-bar-medium'), sevBarLow = $('sev-bar-low');
     const sourceViewer = $('source-viewer'), sourceCode = $('source-code'), sourceMinimap = $('source-minimap');
     const themeToggle = $('theme-toggle');
@@ -18,6 +20,26 @@
 
     const ALLOWED = ['.py', '.docx'];
     const HISTORY_KEY = 'smartdoc-history';
+
+    const VERDICTS = {
+        good: { icon: '\u2713', title: 'Соответствует требованиям', sub: 'Ошибок не найдено', cls: 'stat--verdict-good' },
+        ok:   { icon: '!',      title: 'Почти готов',              sub: 'Нет критичных ошибок', cls: 'stat--verdict-ok' },
+        bad:  { icon: '\u2716', title: 'Требует доработки',        sub: 'Найдены критичные ошибки', cls: 'stat--verdict-bad' },
+    };
+    function setVerdict(key) {
+        const v = VERDICTS[key] || VERDICTS.bad;
+        verdictCard.classList.remove('stat--verdict-good','stat--verdict-ok','stat--verdict-bad');
+        verdictCard.classList.add(v.cls);
+        verdictIcon.textContent = v.icon;
+        verdictTitle.textContent = v.title;
+        verdictSub.textContent = v.sub;
+    }
+    function resetVerdict() {
+        verdictCard.classList.remove('stat--verdict-good','stat--verdict-ok','stat--verdict-bad');
+        verdictIcon.textContent = '?';
+        verdictTitle.textContent = '\u2014';
+        verdictSub.textContent = '';
+    }
     const RULES_KEY = 'smartdoc-docx-rules';
     let currentFile = null, currentReport = null;
 
@@ -439,7 +461,9 @@
 
         animV(statTotal, data.total_issues); animV(statHigh, data.summary.high);
         animV(statMedium, data.summary.medium); animV(statLow, data.summary.low);
-        statScore.textContent = '—';
+        if (data.total_issues === 0) setVerdict('good');
+        else if (data.summary.high === 0) setVerdict('ok');
+        else setVerdict('bad');
         const tot = data.total_issues || 1;
         sevBarHigh.style.width = (data.summary.high/tot*100)+'%';
         sevBarMedium.style.width = (data.summary.medium/tot*100)+'%';
@@ -456,14 +480,15 @@
 
         // Summary table
         let tableHTML = '<div class="batch-summary-table"><table class="batch-table"><thead><tr>'
-            + '<th>Файл</th><th>Тип</th><th>Соответствие</th><th>Ошибок</th><th>Крит.</th><th>Средн.</th><th>Незнач.</th>'
+            + '<th>Файл</th><th>Тип</th><th>Статус</th><th>Ошибок</th><th>Крит.</th><th>Средн.</th><th>Незнач.</th>'
             + '</tr></thead><tbody>';
         data.reports.forEach(r => {
             const badge = r.file_type === 'python' ? 'PY' : r.file_type === 'docx' ? 'DOCX' : '?';
-            const score = typeof r.score === 'number' ? r.score + '%' : '—';
+            const vKey = r.total_issues === 0 ? 'good' : (r.verdict || (r.summary.high > 0 ? 'bad' : 'ok'));
+            const vLabel = VERDICTS[vKey] ? VERDICTS[vKey].title : '—';
             const rowClass = r.total_issues === 0 ? 'batch-table__row--ok' : r.summary.high > 0 ? 'batch-table__row--high' : '';
             tableHTML += `<tr class="${rowClass}"><td>${esc(r.filename)}</td><td>${badge}</td>`
-                + `<td><strong>${score}</strong></td><td>${r.total_issues}</td>`
+                + `<td><strong>${vLabel}</strong></td><td>${r.total_issues}</td>`
                 + `<td>${r.summary.high}</td><td>${r.summary.medium}</td><td>${r.summary.low}</td></tr>`;
         });
         tableHTML += '</tbody></table></div>';
@@ -532,15 +557,14 @@
 
         animV(statTotal, report.total_issues); animV(statHigh, report.summary.high);
         animV(statMedium, report.summary.medium); animV(statLow, report.summary.low);
-        if (typeof report.score === 'number') {
-            animV(statScore, report.score);
-            // Color score
-            const scoreEl = statScore.parentElement;
-            scoreEl.classList.remove('stat--score-good','stat--score-ok','stat--score-bad');
-            if (report.score >= 80) scoreEl.classList.add('stat--score-good');
-            else if (report.score >= 50) scoreEl.classList.add('stat--score-ok');
-            else scoreEl.classList.add('stat--score-bad');
-        } else { statScore.textContent = '—'; }
+        if (report.verdict) {
+            setVerdict(report.verdict);
+        } else {
+            // Python files: derive verdict from summary
+            if (report.total_issues === 0) setVerdict('good');
+            else if (report.summary.high === 0) setVerdict('ok');
+            else setVerdict('bad');
+        }
         const tot = report.total_issues || 1;
         sevBarHigh.style.width = (report.summary.high/tot*100)+'%';
         sevBarMedium.style.width = (report.summary.medium/tot*100)+'%';
@@ -874,7 +898,8 @@
     function showError(msg) {
         reportSection.hidden = false;
         reportType.textContent = '!'; reportFilename.textContent = 'Ошибка'; reportSubtitle.textContent = '';
-        ['stat-total','stat-high','stat-medium','stat-low','stat-score'].forEach(id => $(id).textContent = '—');
+        ['stat-total','stat-high','stat-medium','stat-low'].forEach(id => $(id).textContent = '—');
+        resetVerdict();
         sevBarHigh.style.width='0%'; sevBarMedium.style.width='0%'; sevBarLow.style.width='0%';
         reportBody.innerHTML = `<div class="error-banner">${esc(msg)}</div>`;
         autofixButton.disabled = true; pdfButton.disabled = true;

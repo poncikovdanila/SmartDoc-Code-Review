@@ -181,16 +181,20 @@ def check_python_code(file_path: Path, original_filename: str) -> dict[str, Any]
     except OSError:
         source_lines = []
 
-    # Оценка соответствия (0–100%)
-    max_potential = max(len(source_lines) * 2 + 5, 1)
-    score = max(0, round(100 * (1 - len(issues) / max_potential)))
+    # Вердикт
+    if not issues:
+        verdict = "good"
+    elif summary["high"] == 0:
+        verdict = "ok"
+    else:
+        verdict = "bad"
 
     return {
         "filename": original_filename,
         "file_type": "python",
         "total_issues": len(issues),
         "summary": summary,
-        "score": score,
+        "verdict": verdict,
         "issues": issues,
         "source_lines": source_lines,
     }

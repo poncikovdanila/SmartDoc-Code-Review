@@ -592,16 +592,20 @@ def check_docx_document(file_path: Path, original_filename: str,
         summary[issue["severity"]] += 1
     issues.extend(extra_issues)
 
-    # Оценка соответствия (0–100%)
-    max_potential = max(paragraph_number * 3 + 10, 1)
-    score = max(0, round(100 * (1 - len(issues) / max_potential)))
+    # Вердикт вместо процентов
+    if not issues:
+        verdict = "good"
+    elif summary["high"] == 0:
+        verdict = "ok"
+    else:
+        verdict = "bad"
 
     return {
         "filename": original_filename,
         "file_type": "docx",
         "total_issues": len(issues),
         "summary": summary,
-        "score": score,
+        "verdict": verdict,
         "issues": issues,
         "paragraphs_checked": paragraph_number,
         "source_lines": [],
