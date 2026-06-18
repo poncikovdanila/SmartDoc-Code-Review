@@ -71,10 +71,10 @@
         agu: {
             font_name:'Times New Roman', font_size_pt:14, line_spacing:1.5,
             first_line_indent_cm:1.25, alignment:'justify', bib_name:'any',
-            margins_cm:{left:3,right:1.5,top:2,bottom:2},
+            margins_cm:{left:3.5,right:1,top:2.5,bottom:2.5},
             checks:{headings:true,pageNumbers:true,toc:true,bibliography:true,
                     hyperlinks:true,textColor:true,tables:true,spaces:true,blankLines:true},
-            label:'АГУ (ГОСТ)'
+            label:'АГУ (кафедра ИТ)'
         },
     };
 
@@ -103,7 +103,7 @@
         ruleInputs.indent.value = data.first_line_indent_cm || 1.25;
         ruleInputs.alignment.value = data.alignment || 'justify';
         ruleInputs.bibName.value = data.bib_name || 'any';
-        const m = data.margins_cm || {left:3,right:1.5,top:2,bottom:2};
+        const m = data.margins_cm || {left:3.5,right:1,top:2.5,bottom:2.5};
         ruleInputs.mLeft.value = m.left; ruleInputs.mRight.value = m.right;
         ruleInputs.mTop.value = m.top; ruleInputs.mBottom.value = m.bottom;
         const ch = data.checks || {};

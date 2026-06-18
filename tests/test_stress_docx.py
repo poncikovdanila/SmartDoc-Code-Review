@@ -42,8 +42,8 @@ def _make_base_doc():
     """Базовый документ с правильными полями."""
     doc = Document()
     for sec in doc.sections:
-        sec.left_margin = Cm(3); sec.right_margin = Cm(1.5)
-        sec.top_margin = Cm(2); sec.bottom_margin = Cm(2)
+        sec.left_margin = Cm(3.5); sec.right_margin = Cm(1.0)
+        sec.top_margin = Cm(2.5); sec.bottom_margin = Cm(2.5)
     return doc
 
 
@@ -167,8 +167,8 @@ class TestMixedFontSizes:
             _add_paragraph(doc, f"Текст размером {size} пт.", size=size)
         path = _save(doc, tmp_path)
         r = _check(path)
-        # Все кроме 14 — ошибка (допуск ±0.5)
-        assert _count(r, "FONT_SIZE_MISMATCH") == 8
+        # 12 и 14 — допустимые; остальные (8,10,11,16,18,20,24) — ошибки
+        assert _count(r, "FONT_SIZE_MISMATCH") == 7
 
     def test_almost_correct_size(self, tmp_path):
         doc = _make_base_doc()
@@ -251,8 +251,8 @@ class TestMixedMargins:
         doc = Document()
         # Секция 1 — правильные поля
         sec1 = doc.sections[0]
-        sec1.left_margin = Cm(3); sec1.right_margin = Cm(1.5)
-        sec1.top_margin = Cm(2); sec1.bottom_margin = Cm(2)
+        sec1.left_margin = Cm(3.5); sec1.right_margin = Cm(1.0)
+        sec1.top_margin = Cm(2.5); sec1.bottom_margin = Cm(2.5)
         _add_paragraph(doc, "Секция 1 — правильные поля.")
         # Секция 2 — неправильные
         doc.add_section()
@@ -673,10 +673,9 @@ class TestChaosWithCustomRules:
             _add_paragraph(doc, "Текст Arial 12pt.", font="Arial", size=12)
         path = _save(doc, tmp_path)
 
-        # Default rules — ошибки
+        # Default rules — ошибки шрифта (Arial вместо TNR), но 12pt допустим
         r_default = _check(path)
         assert _count(r_default, "FONT_MISMATCH") > 0
-        assert _count(r_default, "FONT_SIZE_MISMATCH") > 0
 
         # Custom rules — без ошибок шрифта
         r_custom = _check(path, {"font_name": "Arial", "font_size_pt": 12})

@@ -2,13 +2,12 @@
 
 Область применения: направление 09.03.02 «Информационные системы и технологии»,
 факультет цифровых технологий и кибербезопасности, каф. ИТиК.
-Инженерно-технический подход с ориентацией на ЕСКД.
 
 Проверяемые параметры (см. docs/Требования_нормоконтроля_АГУ_ФЦТиК.md):
     * шрифт: Times New Roman, 14 пт
     * межстрочный интервал: 1.5
     * отступ первой строки абзаца: 1.25 см
-    * поля страницы: левое 3 см, правое 1.5 см, верхнее и нижнее по 2 см
+    * поля страницы: левое 3.5 см, правое 1 см, верхнее и нижнее по 2.5 см
     * выравнивание текста по ширине
     * оформление заголовков (жирный, без точки)
     * нумерация страниц (наличие)
@@ -31,6 +30,7 @@ from docx.shared import Cm, Pt
 from docx.document import Document as DocxDocument
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from app.checkers.docx_extras import (
     check_bibliography,
@@ -45,19 +45,25 @@ from app.checkers.docx_extras import (
     check_table_formatting,
     check_extra_spaces,
     check_table_of_contents,
+    check_paragraph_spacing,
+    check_heading_numbering,
+    check_heading_hierarchy,
+    check_cross_references,
+    check_appendix_format,
+    check_bibliography_format,
 )
 
-# Эталонные значения по ГОСТ/АГУ. Если в учебном заведении изменятся требования —
+# Эталонные значения по требованиям кафедры ИТ АГУ. Если требования изменятся —
 # меняем только здесь.
 EXPECTED_FONT_NAME = "Times New Roman"
 EXPECTED_FONT_SIZE_PT = 14.0
 EXPECTED_LINE_SPACING = 1.5
 EXPECTED_FIRST_LINE_INDENT_CM = 1.25
 EXPECTED_MARGINS_CM = {
-    "left": 3.0,
-    "right": 1.5,
-    "top": 2.0,
-    "bottom": 2.0,
+    "left": 3.5,
+    "right": 1.0,
+    "top": 2.5,
+    "bottom": 2.5,
 }
 
 # Пресеты правил для разных учебных заведений
@@ -67,8 +73,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "font_size_pt": 14.0,
         "line_spacing": 1.5,
         "first_line_indent_cm": 1.25,
-        "margins_cm": {"left": 3.0, "right": 1.5, "top": 2.0, "bottom": 2.0},
-        "label": "АГУ (ГОСТ)",
+        "margins_cm": {"left": 3.5, "right": 1.0, "top": 2.5, "bottom": 2.5},
+        "label": "АГУ (кафедра ИТ)",
     },
     "mgu": {
         "font_name": "Times New Roman",
@@ -167,6 +173,8 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 TOLERANCE_CM = 0.05  # 0.5 мм
 TOLERANCE_PT = 0.5
 TOLERANCE_SPACING = 0.05
+# Допустимые размеры шрифта: основной (14pt) и стандартный Normal (12pt)
+ACCEPTED_FONT_SIZES = {12.0, 14.0}
 
 
 def _emu_to_cm(emu_value: int | None) -> float | None:
@@ -322,10 +330,46 @@ def _is_text_paragraph(paragraph: Paragraph) -> bool:
     # Заголовки оформляются по другим правилам
     if "heading" in style_name or "заголов" in style_name:
         return False
-    # Подписи, оглавление, нумерованные списки — отдельная история
+    # Кастомные стили разделов/подразделов
+    if style_name.startswith("+") or "раздел" in style_name:
+        return False
+    # Подписи, оглавление — отдельная история
     if "caption" in style_name or "toc" in style_name or "список" in style_name:
         return False
+    if style_name == "title":
+        return False
     return True
+
+
+def _is_heading_or_special(paragraph: Paragraph) -> bool:
+    """Заголовок, подраздел, подпись, TOC — всё, что оформляется по своим правилам."""
+    style_name = (paragraph.style.name or "").lower()
+    if "heading" in style_name or "заголов" in style_name:
+        return True
+    if style_name.startswith("+") or "раздел" in style_name:
+        return True
+    if "toc" in style_name or "caption" in style_name or style_name == "title":
+        return True
+    return False
+
+
+def _find_body_start(document) -> int:
+    """Находит индекс первого абзаца основного текста (после титульного листа).
+
+    Всё до первого заголовка (Heading 1/2/..., СОДЕРЖАНИЕ, ВВЕДЕНИЕ) считается
+    титульным листом и проверяется мягче.
+    """
+    body_keywords = {"содержание", "введение", "оглавление"}
+    for i, para in enumerate(document.paragraphs):
+        text = para.text.strip().lower()
+        style_name = (para.style.name or "").lower()
+        if "heading" in style_name:
+            return i
+        if style_name.startswith("+") and "раздел" in style_name:
+            return i
+        if text in body_keywords:
+            return i
+    return 0  # Не нашли — проверяем всё
 
 
 def check_docx_document(file_path: Path, original_filename: str,
@@ -346,6 +390,7 @@ def check_docx_document(file_path: Path, original_filename: str,
     r_spacing = rules["line_spacing"]
     r_indent = rules["first_line_indent_cm"]
     r_margins = rules["margins_cm"]
+    accepted_sizes = ACCEPTED_FONT_SIZES | {r_size}
 
     issues: list[dict[str, Any]] = []
     summary = {"high": 0, "medium": 0, "low": 0}
@@ -406,8 +451,10 @@ def check_docx_document(file_path: Path, original_filename: str,
                             f"требуется {expected} см"
                         ),
                         "description": (
-                            "Поля страницы по ГОСТ/АГУ: левое 3 см, правое 1.5 см, "
-                            "верхнее и нижнее по 2 см"
+                            f"Поля страницы: левое {rules['margins_cm']['left']} см, "
+                            f"правое {rules['margins_cm']['right']} см, "
+                            f"верхнее {rules['margins_cm']['top']} см, "
+                            f"нижнее {rules['margins_cm']['bottom']} см"
                         ),
                         "severity": "high",
                         "expected": f"{expected} см",
@@ -417,16 +464,29 @@ def check_docx_document(file_path: Path, original_filename: str,
                 summary["high"] += 1
 
     # ───── 2. Проверка абзацев ─────
+    body_start = _find_body_start(document)
     paragraph_number = 0
+    para_index = -1
     for paragraph in document.paragraphs:
+        para_index += 1
         if not _is_text_paragraph(paragraph):
             continue
         paragraph_number += 1
+
+        # Титульный лист — пропускаем проверки шрифта/размера/интервала/отступа
+        if para_index < body_start:
+            continue
+
         # Превью первых 60 символов абзаца — чтобы пользователь нашёл место в документе
         preview = paragraph.text.strip()
         if len(preview) > 60:
             preview = preview[:60] + "…"
         location = f"Абзац {paragraph_number}: «{preview}»"
+
+        # Центрированные/правые абзацы — не проверяем отступ и выравнивание
+        is_centered = paragraph.alignment in (
+            WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.RIGHT
+        )
 
         # 2.1. Шрифт
         font_name = _resolve_font_name(paragraph, document)
@@ -474,16 +534,16 @@ def check_docx_document(file_path: Path, original_filename: str,
                 }
             )
             summary["medium"] += 1
-        elif abs(font_size - r_size) > TOLERANCE_PT:
+        elif not any(abs(font_size - acc) <= TOLERANCE_PT for acc in accepted_sizes):
             issues.append(
                 {
                     "location": location,
                     "code": "FONT_SIZE_MISMATCH",
                     "message": (
                         f"Размер шрифта {font_size:.1f} пт, "
-                        f"требуется {r_size} пт"
+                        f"допустимые: {', '.join(f'{s:.0f}' for s in sorted(accepted_sizes))} пт"
                     ),
-                    "description": f"Основной текст работы оформляется кеглем {r_size:.0f}",
+                    "description": f"Основной текст оформляется кеглем {r_size:.0f} (или {min(ACCEPTED_FONT_SIZES):.0f}) пт",
                     "severity": "high",
                     "expected": f"{r_size} пт",
                     "actual": f"{font_size:.1f} пт",
@@ -527,39 +587,40 @@ def check_docx_document(file_path: Path, original_filename: str,
             )
             summary["high"] += 1
 
-        # 2.4. Отступ первой строки
-        indent = _resolve_first_line_indent_cm(paragraph, document)
-        if indent is None:
-            issues.append(
-                {
-                    "location": location,
-                    "code": "INDENT_NOT_SET",
-                    "message": "Отступ первой строки не задан",
-                    "description": (
-                        f"Требуется отступ первой строки {r_indent} см"
-                    ),
-                    "severity": "medium",
-                    "expected": f"{r_indent} см",
-                    "actual": "не задан",
-                }
-            )
-            summary["medium"] += 1
-        elif abs(indent - r_indent) > TOLERANCE_CM:
-            issues.append(
-                {
-                    "location": location,
-                    "code": "INDENT_MISMATCH",
-                    "message": (
-                        f"Отступ первой строки {indent:.2f} см, "
-                        f"требуется {r_indent} см"
-                    ),
-                    "description": f"Красная строка — {r_indent} см",
-                    "severity": "medium",
-                    "expected": f"{r_indent} см",
-                    "actual": f"{indent:.2f} см",
-                }
-            )
-            summary["medium"] += 1
+        # 2.4. Отступ первой строки (не проверяем для центрированных абзацев)
+        if not is_centered:
+            indent = _resolve_first_line_indent_cm(paragraph, document)
+            if indent is None:
+                issues.append(
+                    {
+                        "location": location,
+                        "code": "INDENT_NOT_SET",
+                        "message": "Отступ первой строки не задан",
+                        "description": (
+                            f"Требуется отступ первой строки {r_indent} см"
+                        ),
+                        "severity": "medium",
+                        "expected": f"{r_indent} см",
+                        "actual": "не задан",
+                    }
+                )
+                summary["medium"] += 1
+            elif abs(indent - r_indent) > TOLERANCE_CM:
+                issues.append(
+                    {
+                        "location": location,
+                        "code": "INDENT_MISMATCH",
+                        "message": (
+                            f"Отступ первой строки {indent:.2f} см, "
+                            f"требуется {r_indent} см"
+                        ),
+                        "description": f"Красная строка — {r_indent} см",
+                        "severity": "medium",
+                        "expected": f"{r_indent} см",
+                        "actual": f"{indent:.2f} см",
+                    }
+                )
+                summary["medium"] += 1
 
     # ───── 3. Расширенные проверки ─────
     extra_issues: list[dict[str, Any]] = []
@@ -588,6 +649,18 @@ def check_docx_document(file_path: Path, original_filename: str,
         extra_issues.extend(check_extra_spaces(document))
     if checks.get("toc", True):
         extra_issues.extend(check_table_of_contents(document))
+    if checks.get("paraSpacing", True):
+        extra_issues.extend(check_paragraph_spacing(document))
+    if checks.get("headingNumbers", True):
+        extra_issues.extend(check_heading_numbering(document))
+    if checks.get("headingHierarchy", True):
+        extra_issues.extend(check_heading_hierarchy(document))
+    if checks.get("crossReferences", True):
+        extra_issues.extend(check_cross_references(document))
+    if checks.get("appendix", True):
+        extra_issues.extend(check_appendix_format(document))
+    if checks.get("bibFormat", True):
+        extra_issues.extend(check_bibliography_format(document))
     for issue in extra_issues:
         summary[issue["severity"]] += 1
     issues.extend(extra_issues)

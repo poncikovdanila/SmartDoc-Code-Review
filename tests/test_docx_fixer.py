@@ -39,16 +39,16 @@ def test_autofix_returns_bytes(tmp_path):
 
 
 def test_autofix_fixes_margins(tmp_path):
-    """После autofix поля должны быть 3/1.5/2/2."""
+    """После autofix поля должны быть 3.5/1/2.5/2.5."""
     path = tmp_path / "bad.docx"
     _make_bad_doc(path)
     result = autofix_docx(path)
     doc = Document(io.BytesIO(result))
     section = doc.sections[0]
-    assert abs(section.left_margin.cm - 3.0) < 0.1
-    assert abs(section.right_margin.cm - 1.5) < 0.1
-    assert abs(section.top_margin.cm - 2.0) < 0.1
-    assert abs(section.bottom_margin.cm - 2.0) < 0.1
+    assert abs(section.left_margin.cm - 3.5) < 0.1
+    assert abs(section.right_margin.cm - 1.0) < 0.1
+    assert abs(section.top_margin.cm - 2.5) < 0.1
+    assert abs(section.bottom_margin.cm - 2.5) < 0.1
 
 
 def test_autofix_fixes_font(tmp_path):
