@@ -1,23 +1,92 @@
-/* SmartDoc & Code Review v6.1 — only .py and .docx, no AI */
+/* SmartDoc & Code Review v8.0 — .docx + код (Python, JS, SQL, Java, C/C++), без ИИ */
 (() => {
     'use strict';
-    console.log('[SmartDoc v6.4] JS loaded');
+    console.log('[SmartDoc v8.0] JS loaded');
     const $ = id => document.getElementById(id);
     const dropzone = $('dropzone'), fileInput = $('file-input'), browseButton = $('browse-button');
     const uploadIdle = $('upload-idle'), uploadLoading = $('upload-loading'), loadingFilename = $('loading-filename');
     const reportSection = $('report-section'), reportType = $('report-type');
     const reportFilename = $('report-filename'), reportSubtitle = $('report-subtitle');
     const reportBody = $('report-body'), resetButton = $('reset-button');
+    const heroSection = $('upload');
+    function setReportVisible(v) { reportSection.hidden = !v; if (heroSection) heroSection.hidden = v; }
     const autofixButton = $('autofix-button'), pdfButton = $('pdf-button');
+    const previewButton = $('preview-button'), previewModal = $('preview-modal');
+    const previewBody = $('preview-body'), previewClose = $('preview-close');
+    const previewCancel = $('preview-cancel'), previewApply = $('preview-apply');
     const statTotal = $('stat-total'), statHigh = $('stat-high');
     const statMedium = $('stat-medium'), statLow = $('stat-low');
+    const verdictCard = $('verdict-card'), verdictIcon = $('verdict-icon');
+    const verdictTitle = $('verdict-title'), verdictSub = $('verdict-sub');
     const sevBarHigh = $('sev-bar-high'), sevBarMedium = $('sev-bar-medium'), sevBarLow = $('sev-bar-low');
     const sourceViewer = $('source-viewer'), sourceCode = $('source-code'), sourceMinimap = $('source-minimap');
     const themeToggle = $('theme-toggle');
     const historyList = $('history-list'), historyEmpty = $('history-empty'), clearHistoryBtn = $('clear-history-button');
 
-    const ALLOWED = ['.py', '.docx'];
+    // Языки: расширение → как показывать и что с ним можно делать.
+    // Источник истины — /api/languages на сервере; здесь дублируем, чтобы
+    // не ждать сеть перед первой проверкой, и синхронизируем при загрузке.
+    const LANGUAGES = {
+        '.docx': { badge: 'DOCX', name: 'Документ Word', subtitle: 'Нормоконтроль · ГОСТ/АГУ', autofix: true },
+        '.py':   { badge: 'PY',   name: 'Python',        subtitle: 'PEP 8 · flake8',           autofix: true },
+        '.js':   { badge: 'JS',   name: 'JavaScript',    subtitle: 'Стиль JavaScript',         autofix: false },
+        '.sql':  { badge: 'SQL',  name: 'SQL',           subtitle: 'Стиль SQL',                autofix: false },
+        '.java': { badge: 'JAVA', name: 'Java',          subtitle: 'Конвенции Java',           autofix: false },
+        '.cpp':  { badge: 'C++',  name: 'C++',           subtitle: 'Стиль C/C++',              autofix: false },
+        '.c':    { badge: 'C',    name: 'C',             subtitle: 'Стиль C/C++',              autofix: false },
+        '.h':    { badge: 'H',    name: 'C/C++ Header',  subtitle: 'Стиль C/C++',              autofix: false },
+    };
+    const ALLOWED = Object.keys(LANGUAGES);
+
+    // file_type из отчёта сервера → бейдж. Документ — единственный не-код.
+    const FILE_TYPE_BADGES = {
+        docx: 'DOCX', python: 'PY', javascript: 'JS',
+        sql: 'SQL', java: 'JAVA', cpp: 'C/C++',
+    };
+    const CODE_FILE_TYPES = new Set(['python', 'javascript', 'sql', 'java', 'cpp']);
+
+    const extOf = name => '.' + String(name).split('.').pop().toLowerCase();
+    // Отчёт по коду: есть исходник, можно показать подсветку и контекст строки
+    const isCodeReport = report => CODE_FILE_TYPES.has(report.file_type);
+    const badgeFor = report => FILE_TYPE_BADGES[report.file_type] || '?';
+    const canAutofix = ext => !!(LANGUAGES[ext] && LANGUAGES[ext].autofix);
+
+    // Подтягиваем актуальный список форматов с сервера — если там появится
+    // новый язык, интерфейс узнает о нём без правки этого файла.
+    fetch('/api/languages').then(r => r.ok ? r.json() : null).then(data => {
+        if (!data || !Array.isArray(data.formats)) return;
+        data.formats.forEach(f => {
+            if (LANGUAGES[f.extension]) { LANGUAGES[f.extension].autofix = f.autofix; return; }
+            LANGUAGES[f.extension] = {
+                badge: f.extension.slice(1).toUpperCase(),
+                name: f.name,
+                subtitle: f.name,
+                autofix: f.autofix,
+            };
+            ALLOWED.push(f.extension);
+        });
+    }).catch(() => {});
     const HISTORY_KEY = 'smartdoc-history';
+
+    const VERDICTS = {
+        good: { icon: '\u2713', title: 'Всё в порядке',            sub: 'Замечаний по оформлению нет', cls: 'stat--verdict-good' },
+        ok:   { icon: '!',      title: 'Нужны небольшие правки',  sub: 'Критичных замечаний нет или одно', cls: 'stat--verdict-ok' },
+        bad:  { icon: '\u2716', title: 'Нужно доработать',        sub: 'Есть критичные замечания', cls: 'stat--verdict-bad' },
+    };
+    function setVerdict(key) {
+        const v = VERDICTS[key] || VERDICTS.bad;
+        verdictCard.classList.remove('stat--verdict-good','stat--verdict-ok','stat--verdict-bad');
+        verdictCard.classList.add(v.cls);
+        verdictIcon.textContent = v.icon;
+        verdictTitle.textContent = v.title;
+        verdictSub.textContent = v.sub;
+    }
+    function resetVerdict() {
+        verdictCard.classList.remove('stat--verdict-good','stat--verdict-ok','stat--verdict-bad');
+        verdictIcon.textContent = '?';
+        verdictTitle.textContent = '\u2014';
+        verdictSub.textContent = '';
+    }
     const RULES_KEY = 'smartdoc-docx-rules';
     let currentFile = null, currentReport = null;
 
@@ -49,10 +118,10 @@
         agu: {
             font_name:'Times New Roman', font_size_pt:14, line_spacing:1.5,
             first_line_indent_cm:1.25, alignment:'justify', bib_name:'any',
-            margins_cm:{left:3,right:1.5,top:2,bottom:2},
+            margins_cm:{left:3.5,right:1,top:2.5,bottom:2.5},
             checks:{headings:true,pageNumbers:true,toc:true,bibliography:true,
                     hyperlinks:true,textColor:true,tables:true,spaces:true,blankLines:true},
-            label:'АГУ (ГОСТ)'
+            label:'АГУ (кафедра ИТ)'
         },
     };
 
@@ -81,7 +150,7 @@
         ruleInputs.indent.value = data.first_line_indent_cm || 1.25;
         ruleInputs.alignment.value = data.alignment || 'justify';
         ruleInputs.bibName.value = data.bib_name || 'any';
-        const m = data.margins_cm || {left:3,right:1.5,top:2,bottom:2};
+        const m = data.margins_cm || {left:3.5,right:1,top:2.5,bottom:2.5};
         ruleInputs.mLeft.value = m.left; ruleInputs.mRight.value = m.right;
         ruleInputs.mTop.value = m.top; ruleInputs.mBottom.value = m.bottom;
         const ch = data.checks || {};
@@ -198,11 +267,32 @@
         e.target.value = '';
     });
 
+    // Generate template
+    const templateButton = $('template-button');
+    templateButton.addEventListener('click', async () => {
+        templateButton.disabled = true;
+        const orig = templateButton.textContent;
+        templateButton.textContent = 'Генерируем…';
+        try {
+            const fd = new FormData();
+            fd.append('docx_rules', JSON.stringify(getRulesForAPI()));
+            const r = await fetch('/api/generate-template', { method: 'POST', body: fd });
+            if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || `Ошибка ${r.status}`); }
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'Шаблон_АГУ.docx'; a.click();
+            URL.revokeObjectURL(url);
+        } catch (err) { alert('Не удалось: ' + err.message); }
+        finally { templateButton.disabled = false; templateButton.textContent = orig; }
+    });
+
     // ─── Scroll-reveal observer ───
 
     // ─── Paste Area ───
     const pasteToggle = $('paste-toggle'), pasteEditor = $('paste-editor');
     const pasteTextarea = $('paste-textarea'), pasteCheck = $('paste-check'), pasteClear = $('paste-clear');
+    const pasteLanguage = $('paste-language');
 
     pasteToggle.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -220,9 +310,10 @@
     pasteCheck.addEventListener('click', () => {
         const code = pasteTextarea.value;
         if (!code.trim()) { alert('Вставьте код для проверки'); return; }
-        // Create a virtual .py file from the pasted code
-        const blob = new Blob([code], { type: 'text/x-python' });
-        const file = new File([blob], 'pasted_code.py', { type: 'text/x-python' });
+        // Собираем виртуальный файл с расширением выбранного языка
+        const ext = (pasteLanguage && pasteLanguage.value) || '.py';
+        const blob = new Blob([code], { type: 'text/plain' });
+        const file = new File([blob], 'pasted_code' + ext, { type: 'text/plain' });
         handleFile(file);
     });
 
@@ -238,7 +329,8 @@
         if (!text || !text.trim()) return;
 
         // Check if it looks like code (has newlines or common code patterns)
-        const looksLikeCode = text.includes('\n') || /^\s*(import |from |def |class |if |for |while |#)/.test(text);
+        const looksLikeCode = text.includes('\n')
+            || /^\s*(import |from |def |class |if |for |while |#|\/\/|const |let |var |function |public |SELECT |select )/.test(text);
         if (!looksLikeCode) return;
 
         e.preventDefault();
@@ -263,7 +355,7 @@
     document.querySelectorAll('.info-card').forEach(card => revealObserver.observe(card));
 
     // ─── Theme ───
-    themeToggle.addEventListener('click', () => {
+    if (themeToggle) themeToggle.addEventListener('click', () => {
         const t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
         document.documentElement.setAttribute('data-theme', t);
         localStorage.setItem('smartdoc-theme', t);
@@ -272,13 +364,24 @@
     // ─── File selection ───
     browseButton.addEventListener('click', e => { e.stopPropagation(); fileInput.click(); });
     dropzone.addEventListener('click', e => { if (!e.target.closest('.link-button') && !e.target.closest('.paste-area') && !e.target.closest('.paste-area__toggle') && !e.target.closest('.paste-area__editor')) fileInput.click(); });
-    fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+    fileInput.addEventListener('change', e => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+        if (files.length === 1) handleFile(files[0]);
+        else handleBatch(files);
+    });
     ['dragenter','dragover'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dropzone.classList.add('is-dragover'); }));
     ['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('is-dragover'); }));
-    dropzone.addEventListener('drop', e => { if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+    dropzone.addEventListener('drop', e => {
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length === 0) return;
+        if (files.length === 1) handleFile(files[0]);
+        else handleBatch(files);
+    });
 
     resetButton.addEventListener('click', () => {
-        reportSection.hidden = true; sourceViewer.hidden = true;
+        setReportVisible(false); sourceViewer.hidden = true;
+        uploadIdle.hidden = false; uploadLoading.hidden = true;
         fileInput.value = '';
         currentFile = null; currentReport = null;
         closeTooltip();
@@ -286,25 +389,214 @@
     });
 
     // ─── Autofix ───
-    autofixButton.addEventListener('click', async () => {
+    async function runAutofix() {
         if (!currentFile) return;
         autofixButton.disabled = true;
         const orig = autofixButton.innerHTML;
         autofixButton.textContent = 'Исправляем…';
+        const beforeIssues = currentReport ? currentReport.total_issues : 0;
         try {
             const fd = new FormData(); fd.append('file', currentFile);
-            const ext = '.' + currentFile.name.split('.').pop().toLowerCase();
+            const ext = extOf(currentFile.name);
             if (ext === '.docx') {
                 fd.append('docx_rules', JSON.stringify(getRulesForAPI()));
             }
             const r = await fetch('/api/autofix', { method: 'POST', body: fd });
             if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || `Ошибка ${r.status}`); }
+            const blob = await r.blob();
             const disp = r.headers.get('Content-Disposition') || '';
             let fn = currentFile.name.replace(/\.([^.]+)$/, '_fixed.$1');
-            const m = disp.match(/filename="([^"]+)"/); if (m) fn = m[1];
-            downloadBlob(await r.blob(), fn);
+            // Сначала filename*= (UTF-8, кириллица), потом ASCII-запасной вариант
+            const mu = disp.match(/filename\*=UTF-8''([^;]+)/i);
+            if (mu) { try { fn = decodeURIComponent(mu[1]); } catch (_) {} }
+            else { const m = disp.match(/filename="([^"]+)"/); if (m) fn = m[1]; }
+            downloadBlob(blob, fn);
+
+            // Re-check the fixed file
+            autofixButton.textContent = 'Проверяем результат…';
+            const fixedFile = new File([blob], fn, { type: blob.type });
+            const fd2 = new FormData(); fd2.append('file', fixedFile);
+            if (ext === '.docx') fd2.append('docx_rules', JSON.stringify(getRulesForAPI()));
+            const r2 = await fetch('/api/check', { method: 'POST', body: fd2 });
+            if (r2.ok) {
+                const report = await r2.json();
+                currentReport = report;
+                currentFile = fixedFile;
+                renderReport(report);
+                // Show comparison banner
+                const fixed = beforeIssues - report.total_issues;
+                if (fixed > 0) {
+                    const banner = document.createElement('div');
+                    banner.className = 'success-banner';
+                    banner.innerHTML = `✓ Исправлено: было <strong>${beforeIssues}</strong> → стало <strong>${report.total_issues}</strong> (−${fixed})`;
+                    reportBody.insertBefore(banner, reportBody.firstChild);
+                }
+            }
         } catch (err) { alert('Не удалось: ' + err.message); }
         finally { autofixButton.disabled = false; autofixButton.innerHTML = orig; }
+    }
+
+    autofixButton.addEventListener('click', runAutofix);
+
+    // ─── Предпросмотр автоисправления ───
+    // Автоисправление меняет файл и сразу кладёт его в загрузки. Перед этим
+    // стоит показать, что именно изменится: для кода — построчный diff, для
+    // .docx полного diff не получить (бинарный формат), поэтому показываем,
+    // сколько замечаний уйдёт.
+
+    // Классический diff по наибольшей общей подпоследовательности.
+    // Файлы здесь не больше нескольких тысяч строк, поэтому таблицы O(n·m)
+    // достаточно — ради экономии сначала срезаем совпадающие края.
+    function diffLines(before, after) {
+        let head = 0;
+        while (head < before.length && head < after.length && before[head] === after[head]) head++;
+        let tail = 0;
+        while (tail < before.length - head && tail < after.length - head
+               && before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail++;
+
+        const a = before.slice(head, before.length - tail);
+        const b = after.slice(head, after.length - tail);
+
+        const lcs = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
+        for (let i = a.length - 1; i >= 0; i--) {
+            for (let j = b.length - 1; j >= 0; j--) {
+                lcs[i][j] = a[i] === b[j]
+                    ? lcs[i + 1][j + 1] + 1
+                    : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+            }
+        }
+
+        const rows = [];
+        for (let k = 0; k < head; k++) rows.push({ op: ' ', text: before[k], noBefore: k + 1, noAfter: k + 1 });
+        let i = 0, j = 0;
+        while (i < a.length && j < b.length) {
+            if (a[i] === b[j]) {
+                rows.push({ op: ' ', text: a[i], noBefore: head + i + 1, noAfter: head + j + 1 });
+                i++; j++;
+            } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+                rows.push({ op: '-', text: a[i], noBefore: head + i + 1, noAfter: null });
+                i++;
+            } else {
+                rows.push({ op: '+', text: b[j], noBefore: null, noAfter: head + j + 1 });
+                j++;
+            }
+        }
+        while (i < a.length) { rows.push({ op: '-', text: a[i], noBefore: head + i + 1, noAfter: null }); i++; }
+        while (j < b.length) { rows.push({ op: '+', text: b[j], noBefore: null, noAfter: head + j + 1 }); j++; }
+        for (let k = 0; k < tail; k++) {
+            const bi = before.length - tail + k, ai = after.length - tail + k;
+            rows.push({ op: ' ', text: before[bi], noBefore: bi + 1, noAfter: ai + 1 });
+        }
+        return rows;
+    }
+
+    // Неизменённые куски длиннее 2·CONTEXT строк сворачиваем: иначе diff
+    // по файлу на 500 строк невозможно просмотреть глазами.
+    const DIFF_CONTEXT = 3;
+    function collapseUnchanged(rows) {
+        const keep = new Array(rows.length).fill(false);
+        rows.forEach((row, idx) => {
+            if (row.op === ' ') return;
+            for (let k = idx - DIFF_CONTEXT; k <= idx + DIFF_CONTEXT; k++) {
+                if (k >= 0 && k < rows.length) keep[k] = true;
+            }
+        });
+        const out = [];
+        let hidden = 0;
+        rows.forEach((row, idx) => {
+            if (keep[idx]) {
+                if (hidden) { out.push({ op: 'skip', count: hidden }); hidden = 0; }
+                out.push(row);
+            } else {
+                hidden++;
+            }
+        });
+        if (hidden) out.push({ op: 'skip', count: hidden });
+        return out;
+    }
+
+    function renderDiff(before, after) {
+        const rows = collapseUnchanged(diffLines(before, after));
+        const added = rows.filter(r => r.op === '+').length;
+        const removed = rows.filter(r => r.op === '-').length;
+
+        let html = `<p class="preview__lede">Строк добавлено: <b>${added}</b>, удалено: <b>${removed}</b>. `
+            + 'Содержание не трогается — меняется только оформление.</p>'
+            + '<div class="diff"><div class="diff__line diff__line--head">'
+            + '<span class="diff__no">было</span><span class="diff__no">стало</span>'
+            + '<span class="diff__sign"></span><span class="diff__text"></span></div>';
+        rows.forEach(row => {
+            if (row.op === 'skip') {
+                html += `<div class="diff__line diff__line--skip">⋯ пропущено строк без изменений: ${row.count}</div>`;
+                return;
+            }
+            const cls = row.op === '+' ? ' diff__line--add' : row.op === '-' ? ' diff__line--del' : '';
+            // Две колонки номеров: слева строка исходника, справа — результата.
+            // В одной колонке номера «до» и «после» чередовались бы и путали.
+            html += `<div class="diff__line${cls}">`
+                + `<span class="diff__no">${row.noBefore || ''}</span>`
+                + `<span class="diff__no">${row.noAfter || ''}</span>`
+                + `<span class="diff__sign">${row.op === ' ' ? '' : row.op}</span>`
+                + `<span class="diff__text">${esc(row.text)}</span></div>`;
+        });
+        return html + '</div>';
+    }
+
+    function renderDocxPreview(data) {
+        const before = data.before_issues, after = data.after_issues;
+        const bs = data.before_summary || {}, as = data.after_summary || {};
+        const labels = { high: 'Критичных', medium: 'Замечаний', low: 'Мелочей' };
+        let rows = '';
+        ['high', 'medium', 'low'].forEach(key => {
+            rows += `<span>${labels[key]}</span><b>${bs[key] || 0}</b><b>→ ${as[key] || 0}</b>`;
+        });
+        return '<p class="preview__lede">Для .docx построчный diff невозможен — это архив с разметкой, '
+            + 'а не текст. Поэтому показываем результат: сколько замечаний снимет исправление. '
+            + 'Текст, титульный лист и структура документа не меняются.</p>'
+            + '<div class="preview__counts">'
+            + `<div class="preview__col"><div class="preview__col-t">Сейчас</div><div class="preview__col-v">${before}</div></div>`
+            + '<div class="preview__arrow">→</div>'
+            + `<div class="preview__col preview__col--after"><div class="preview__col-t">После исправления</div><div class="preview__col-v">${after}</div></div>`
+            + '</div>'
+            + `<div class="preview__rows">${rows}</div>`;
+    }
+
+    function openPreview(html, canApply) {
+        previewBody.innerHTML = html;
+        previewApply.hidden = !canApply;
+        previewModal.hidden = false;
+    }
+    const closePreview = () => { previewModal.hidden = true; };
+    previewClose.addEventListener('click', closePreview);
+    previewCancel.addEventListener('click', closePreview);
+    previewModal.addEventListener('click', e => { if (e.target === previewModal) closePreview(); });
+    previewApply.addEventListener('click', () => { closePreview(); runAutofix(); });
+
+    previewButton.addEventListener('click', async () => {
+        if (!currentFile) return;
+        previewButton.disabled = true;
+        const orig = previewButton.innerHTML;
+        previewButton.textContent = 'Считаем…';
+        try {
+            const fd = new FormData(); fd.append('file', currentFile);
+            const ext = extOf(currentFile.name);
+            if (ext === '.docx') fd.append('docx_rules', JSON.stringify(getRulesForAPI()));
+            const r = await fetch('/api/autofix-preview', { method: 'POST', body: fd });
+            if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || `Ошибка ${r.status}`); }
+            const data = await r.json();
+            if (!data.changed) {
+                openPreview('<div class="preview__none">✓ Автоисправление ничего не изменит — '
+                    + 'по тем правилам, которые оно умеет чинить, файл уже в порядке. '
+                    + 'Оставшиеся замечания нужно править вручную.</div>', false);
+                return;
+            }
+            openPreview(data.file_type === 'docx'
+                ? renderDocxPreview(data)
+                : renderDiff(data.original.split('\n'), data.fixed.split('\n')), true);
+        } catch (err) {
+            alert('Не удалось получить предпросмотр: ' + err.message);
+        }
+        finally { previewButton.disabled = false; previewButton.innerHTML = orig; }
     });
 
     // ─── PDF ───
@@ -329,8 +621,11 @@
 
     // ─── Main handler ───
     async function handleFile(file) {
-        const ext = '.' + file.name.split('.').pop().toLowerCase();
-        if (!ALLOWED.includes(ext)) { showError(`Формат ${ext} не поддерживается. Допустимы: .py, .docx`); return; }
+        const ext = extOf(file.name);
+        if (!ALLOWED.includes(ext)) {
+            showError(`Формат ${ext} не поддерживается. Допустимы: ${ALLOWED.join(', ')}`);
+            return;
+        }
         showLoading(file.name);
         currentFile = file;
         const fd = new FormData(); fd.append('file', file);
@@ -357,17 +652,151 @@
         finally { hideLoading(); }
     }
 
-    function showLoading(fn) { uploadIdle.hidden = true; uploadLoading.hidden = false; loadingFilename.textContent = fn; reportSection.hidden = true; }
+    // ─── Batch check ───
+    async function handleBatch(files) {
+        showLoading(`${files.length} файлов…`);
+        currentFile = null;
+        const fd = new FormData();
+        files.forEach(f => fd.append('files', f));
+        const hasDocx = files.some(f => f.name.toLowerCase().endsWith('.docx'));
+        if (hasDocx) fd.append('docx_rules', JSON.stringify(getRulesForAPI()));
+
+        try {
+            const r = await fetch('/api/check-batch', { method: 'POST', body: fd });
+            if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || `Ошибка сервера (${r.status})`); }
+            const data = await r.json();
+            renderBatchReport(data);
+        } catch (err) {
+            showError(err.message || 'Ошибка пакетной проверки');
+        }
+        finally { hideLoading(); }
+    }
+
+    function renderBatchReport(data) {
+        setReportVisible(true);
+        sourceViewer.hidden = true;
+        reportType.textContent = '📦';
+        reportFilename.textContent = `Пакетная проверка (${data.file_count} файлов)`;
+        reportSubtitle.textContent = '';
+
+        animV(statTotal, data.total_issues); animV(statHigh, data.summary.high);
+        animV(statMedium, data.summary.medium); animV(statLow, data.summary.low);
+        if (data.total_issues === 0) setVerdict('good');
+        else if (data.summary.high === 0) setVerdict('ok');
+        else setVerdict('bad');
+        const tot = data.total_issues || 1;
+        sevBarHigh.style.width = (data.summary.high/tot*100)+'%';
+        sevBarMedium.style.width = (data.summary.medium/tot*100)+'%';
+        sevBarLow.style.width = (data.summary.low/tot*100)+'%';
+
+        autofixButton.disabled = true;
+        updatePreviewButton();
+        pdfButton.disabled = true;
+        reportBody.innerHTML = '';
+
+        if (data.total_issues === 0) {
+            reportBody.innerHTML = '<div class="empty-state"><div class="empty-state__icon">✓</div><div class="empty-state__title">Замечаний не найдено</div><div class="empty-state__text">Все файлы соответствуют требованиям.</div></div>';
+            return;
+        }
+
+        // Summary table
+        let tableHTML = '<div class="batch-summary-table"><table class="batch-table"><thead><tr>'
+            + '<th>Файл</th><th>Тип</th><th>Статус</th><th>Ошибок</th><th>Крит.</th><th>Средн.</th><th>Незнач.</th>'
+            + '</tr></thead><tbody>';
+        data.reports.forEach(r => {
+            const badge = badgeFor(r);
+            const vKey = r.total_issues === 0 ? 'good' : (r.verdict || (r.summary.high > 0 ? 'bad' : 'ok'));
+            const vLabel = VERDICTS[vKey] ? VERDICTS[vKey].title : '—';
+            const rowClass = r.total_issues === 0 ? 'batch-table__row--ok' : r.summary.high > 0 ? 'batch-table__row--high' : '';
+            tableHTML += `<tr class="${rowClass}"><td>${esc(r.filename)}</td><td>${badge}</td>`
+                + `<td><strong>${vLabel}</strong></td><td>${r.total_issues}</td>`
+                + `<td>${r.summary.high}</td><td>${r.summary.medium}</td><td>${r.summary.low}</td></tr>`;
+        });
+        tableHTML += '</tbody></table></div>';
+        reportBody.innerHTML = tableHTML;
+
+        // Per-file accordion
+        data.reports.forEach((report, idx) => {
+            const badge = badgeFor(report);
+            const statusIcon = report.error ? '⚠' : report.total_issues === 0 ? '✓' : report.total_issues;
+            const statusClass = report.error ? 'batch-file--error' : report.total_issues === 0 ? 'batch-file--ok' : 'batch-file--issues';
+
+            const section = document.createElement('div');
+            section.className = `batch-file ${statusClass}`;
+
+            let headerHTML = `<div class="batch-file__header" data-batch-idx="${idx}">
+                <span class="batch-file__badge">${badge}</span>
+                <span class="batch-file__name">${esc(report.filename)}</span>
+                <span class="batch-file__count">${statusIcon}</span>
+                <span class="batch-file__arrow">▸</span>
+            </div>`;
+
+            let bodyHTML = `<div class="batch-file__body" id="batch-body-${idx}" hidden>`;
+            if (report.error) {
+                bodyHTML += `<div class="error-banner">${esc(report.error)}</div>`;
+            } else if (report.issues.length === 0) {
+                bodyHTML += '<div style="padding:12px;color:var(--c-green)">✓ Замечаний нет</div>';
+            } else {
+                report.issues.forEach(iss => {
+                    const el = renderIssue(iss, report);
+                    bodyHTML += el.outerHTML;
+                });
+            }
+            bodyHTML += '</div>';
+
+            section.innerHTML = headerHTML + bodyHTML;
+            section.querySelector('.batch-file__header').addEventListener('click', () => {
+                const body = section.querySelector('.batch-file__body');
+                const arrow = section.querySelector('.batch-file__arrow');
+                body.hidden = !body.hidden;
+                arrow.textContent = body.hidden ? '▸' : '▾';
+            });
+
+            reportBody.appendChild(section);
+        });
+
+        setTimeout(() => reportSection.scrollIntoView({ behavior:'smooth', block:'start' }), 100);
+    }
+
+    // Автоисправление есть не у всех языков: для остальных кнопку гасим
+    // и объясняем причину подсказкой, а не молчаливой блокировкой.
+    function updateAutofixButton(report) {
+        if (report.error || !currentFile) {
+            autofixButton.disabled = true;
+            autofixButton.title = '';
+            return;
+        }
+        const ext = extOf(currentFile.name);
+        if (!canAutofix(ext)) {
+            autofixButton.disabled = true;
+            const name = (LANGUAGES[ext] && LANGUAGES[ext].name) || ext;
+            autofixButton.title = `Автоисправление для ${name} пока не поддерживается — доступна только проверка`;
+            return;
+        }
+        autofixButton.disabled = false;
+        autofixButton.title = '';
+    }
+
+    // Предпросмотр показывает результат автоисправления, поэтому доступен
+    // ровно там же, где доступно само автоисправление.
+    function updatePreviewButton() {
+        previewButton.disabled = autofixButton.disabled;
+        previewButton.title = autofixButton.title;
+    }
+
+    function showLoading(fn) { uploadIdle.hidden = true; uploadLoading.hidden = false; loadingFilename.textContent = fn; setReportVisible(false); }
     function hideLoading() { uploadIdle.hidden = false; uploadLoading.hidden = true; }
 
     // ─── Render report ───
     function renderReport(report) {
-        reportSection.hidden = false;
-        reportType.textContent = report.file_type === 'python' ? 'PY' : 'DOCX';
+        setReportVisible(true);
+        reportType.textContent = badgeFor(report);
         reportFilename.textContent = report.filename;
         const parts = [];
-        if (report.file_type === 'python') {
-            parts.push('PEP 8 · flake8');
+        if (isCodeReport(report)) {
+            parts.push(report.file_type === 'python'
+                ? 'PEP 8 · flake8'
+                : `Стиль · ${report.language_name || badgeFor(report)}`);
             if (report.source_lines && report.source_lines.length) parts.push(`${report.source_lines.length} строк`);
         } else {
             parts.push('Нормоконтроль · ГОСТ/АГУ');
@@ -377,20 +806,30 @@
 
         animV(statTotal, report.total_issues); animV(statHigh, report.summary.high);
         animV(statMedium, report.summary.medium); animV(statLow, report.summary.low);
+        if (report.verdict) {
+            setVerdict(report.verdict);
+        } else {
+            // Python files: derive verdict from summary
+            if (report.total_issues === 0) setVerdict('good');
+            else if (report.summary.high === 0) setVerdict('ok');
+            else setVerdict('bad');
+        }
         const tot = report.total_issues || 1;
         sevBarHigh.style.width = (report.summary.high/tot*100)+'%';
         sevBarMedium.style.width = (report.summary.medium/tot*100)+'%';
         sevBarLow.style.width = (report.summary.low/tot*100)+'%';
 
         reportBody.innerHTML = '';
-        autofixButton.disabled = !!report.error || !currentFile;
+        updateAutofixButton(report);
+        updatePreviewButton();
         pdfButton.disabled = !!report.error;
         if (report.error) { reportBody.innerHTML = `<div class="error-banner">${esc(report.error)}</div>`; sourceViewer.hidden = true; return; }
         if (!report.issues.length) {
             reportBody.innerHTML = '<div class="empty-state"><div class="empty-state__icon">✓</div><div class="empty-state__title">Замечаний не найдено</div><div class="empty-state__text">Файл соответствует всем проверяемым требованиям.</div></div>';
             autofixButton.disabled = true;
+            updatePreviewButton();
             // Still show source code without errors if available
-            if (report.file_type === 'python' && report.source_lines && report.source_lines.length) {
+            if (isCodeReport(report) && report.source_lines && report.source_lines.length) {
                 renderSourceViewer(report);
             } else {
                 sourceViewer.hidden = true;
@@ -409,13 +848,36 @@
         });
 
         // Render source viewer for Python files
-        if (report.file_type === 'python' && report.source_lines && report.source_lines.length) {
+        if (isCodeReport(report) && report.source_lines && report.source_lines.length) {
             renderSourceViewer(report, errorsByLine);
         } else {
             sourceViewer.hidden = true;
         }
 
-        // Create issue elements with staggered reveal + click-to-navigate
+        // Group issues by code
+        const groups = {};
+        const GROUP_NAMES = {
+            FONT_MISMATCH: 'Шрифт', FONT_NOT_SET: 'Шрифт', FONT_SIZE_MISMATCH: 'Размер шрифта', FONT_SIZE_NOT_SET: 'Размер шрифта',
+            LINE_SPACING_MISMATCH: 'Межстрочный интервал', LINE_SPACING_NOT_SET: 'Межстрочный интервал',
+            INDENT_MISMATCH: 'Красная строка', INDENT_NOT_SET: 'Красная строка',
+            PARA_SPACING_BEFORE: 'Интервалы между абзацами', PARA_SPACING_AFTER: 'Интервалы между абзацами',
+            MARGIN_MISMATCH: 'Поля страницы', MARGIN_MISSING: 'Поля страницы', ALIGN_NOT_JUSTIFY: 'Выравнивание',
+            HEADING_ENDS_WITH_DOT: 'Заголовки', HEADING_NOT_BOLD: 'Заголовки', HEADING_NUM_GAP: 'Нумерация заголовков', HEADING_LEVEL_SKIP: 'Нумерация заголовков',
+            FIGURE_CAPTION_FORMAT: 'Подписи к рисункам', FIGURE_DASH_WRONG: 'Подписи к рисункам', FIGURE_NO_REFERENCE: 'Ссылки на рисунки',
+            TABLE_CAPTION_FORMAT: 'Подписи к таблицам', TABLE_DASH_WRONG: 'Подписи к таблицам', TABLE_NO_CAPTION: 'Подписи к таблицам', TABLE_NO_REFERENCE: 'Ссылки на таблицы',
+            TABLE_FONT_MISMATCH: 'Таблицы',
+            BIBLIOGRAPHY_MISSING: 'Список литературы', BIBLIOGRAPHY_EMPTY: 'Список литературы', BIBLIOGRAPHY_ENTRY_FORMAT: 'Список литературы', BIB_NO_YEAR: 'Список литературы',
+            APPENDIX_FORMAT: 'Приложения', APPENDIX_ORDER: 'Приложения',
+            NO_PAGE_NUMBERS: 'Нумерация страниц', NO_TABLE_OF_CONTENTS: 'Оглавление',
+            HYPERLINKS_FOUND: 'Гиперссылки', COLORED_TEXT: 'Цвет текста',
+            DOUBLE_SPACES: 'Пробелы', SPACE_BEFORE_PUNCT: 'Пробелы', EXTRA_BLANK_LINES: 'Пустые строки',
+        };
+        report.issues.forEach(iss => {
+            const group = GROUP_NAMES[iss.code] || iss.code;
+            if (!groups[group]) groups[group] = [];
+            groups[group].push(iss);
+        });
+
         const issueObserver = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
@@ -425,17 +887,60 @@
             });
         }, { threshold: 0.05, rootMargin: '0px 0px -20px 0px' });
 
-        report.issues.forEach((iss, i) => {
-            const el = renderIssue(iss, report);
-            el.style.transitionDelay = Math.min(i * 40, 400) + 'ms';
-            // Click issue → scroll to line in source viewer
-            if (iss.line && report.file_type === 'python') {
-                el.style.cursor = 'pointer';
-                el.addEventListener('click', () => scrollToSourceLine(iss.line));
-            }
-            reportBody.appendChild(el);
-            issueObserver.observe(el);
-        });
+        // For Python with few issues or single group — flat list
+        const groupKeys = Object.keys(groups);
+        if (isCodeReport(report) || (groupKeys.length <= 1 && report.issues.length <= 10)) {
+            report.issues.forEach((iss, i) => {
+                const el = renderIssue(iss, report);
+                el.style.transitionDelay = Math.min(i * 40, 400) + 'ms';
+                if (iss.line && isCodeReport(report)) {
+                    el.style.cursor = 'pointer';
+                    el.addEventListener('click', () => scrollToSourceLine(iss.line));
+                }
+                reportBody.appendChild(el);
+                issueObserver.observe(el);
+            });
+        } else {
+            // Grouped view
+            let globalIdx = 0;
+            groupKeys.forEach(groupName => {
+                const issues = groups[groupName];
+                const severity = issues.some(i=>i.severity==='high') ? 'high' : issues.some(i=>i.severity==='medium') ? 'medium' : 'low';
+
+                const section = document.createElement('div');
+                section.className = 'issue-group';
+
+                const header = document.createElement('div');
+                header.className = `issue-group__header issue-group__header--${severity}`;
+                header.innerHTML = `<span class="issue-group__name">${esc(groupName)}</span>`
+                    + `<span class="issue-group__count">${issues.length}</span>`
+                    + `<span class="issue-group__arrow">▾</span>`;
+
+                const body = document.createElement('div');
+                body.className = 'issue-group__body';
+
+                issues.forEach(iss => {
+                    const el = renderIssue(iss, report);
+                    el.style.transitionDelay = Math.min(globalIdx * 20, 200) + 'ms';
+                    if (iss.line && isCodeReport(report)) {
+                        el.style.cursor = 'pointer';
+                        el.addEventListener('click', () => scrollToSourceLine(iss.line));
+                    }
+                    body.appendChild(el);
+                    issueObserver.observe(el);
+                    globalIdx++;
+                });
+
+                header.addEventListener('click', () => {
+                    body.hidden = !body.hidden;
+                    header.querySelector('.issue-group__arrow').textContent = body.hidden ? '▸' : '▾';
+                });
+
+                section.appendChild(header);
+                section.appendChild(body);
+                reportBody.appendChild(section);
+            });
+        }
 
         setTimeout(() => reportSection.scrollIntoView({ behavior:'smooth', block:'start' }), 100);
     }
@@ -616,21 +1121,20 @@
         const el = document.createElement('article');
         el.className = `issue issue--${iss.severity}`;
         const loc = document.createElement('div'); loc.className = 'issue__location';
-        loc.textContent = report.file_type === 'python'
+        loc.textContent = isCodeReport(report)
             ? `стр. ${iss.line}${iss.column?':'+iss.column:''}`
             : (iss.location||'');
         const body = document.createElement('div'); body.className = 'issue__body';
-        body.innerHTML = `<div class="issue__code-row"><span class="issue__code">${esc(iss.code)}</span></div>`;
-        body.innerHTML += `<div class="issue__description">${esc(iss.description||iss.message)}</div>`;
-        if (iss.message && iss.message !== iss.description)
-            body.innerHTML += `<div class="issue__hint">${esc(iss.message)}</div>`;
+        // Description first (human-readable), code secondary
+        body.innerHTML = `<div class="issue__description">${esc(iss.description||iss.message)}</div>`;
+        body.innerHTML += `<div class="issue__code-row"><span class="issue__code">${esc(iss.code)}</span></div>`;
         if (iss.expected || iss.actual) {
             let h = '<div class="issue__expected">';
-            if (iss.expected) h += `<span><strong>требуется:</strong> ${esc(iss.expected)}</span>`;
-            if (iss.actual) h += `<span><strong>фактически:</strong> ${esc(iss.actual)}</span>`;
+            if (iss.expected) h += `<span>✓ ${esc(iss.expected)}</span>`;
+            if (iss.actual) h += `<span>✗ ${esc(iss.actual)}</span>`;
             body.innerHTML += h + '</div>';
         }
-        if (report.file_type === 'python' && report.source_lines && report.source_lines.length && iss.line) {
+        if (isCodeReport(report) && report.source_lines && report.source_lines.length && iss.line) {
             const s = Math.max(1,iss.line-1), e = Math.min(report.source_lines.length,iss.line+1);
             const pre = document.createElement('div'); pre.className = 'issue__source';
             for (let i=s; i<=e; i++) {
@@ -647,12 +1151,13 @@
     }
 
     function showError(msg) {
-        reportSection.hidden = false;
+        setReportVisible(true);
         reportType.textContent = '!'; reportFilename.textContent = 'Ошибка'; reportSubtitle.textContent = '';
         ['stat-total','stat-high','stat-medium','stat-low'].forEach(id => $(id).textContent = '—');
+        resetVerdict();
         sevBarHigh.style.width='0%'; sevBarMedium.style.width='0%'; sevBarLow.style.width='0%';
         reportBody.innerHTML = `<div class="error-banner">${esc(msg)}</div>`;
-        autofixButton.disabled = true; pdfButton.disabled = true;
+        autofixButton.disabled = true; updatePreviewButton(); pdfButton.disabled = true;
     }
 
     // ─── History ───
@@ -687,7 +1192,7 @@
         h.forEach((e, idx) => {
             const el = document.createElement('div'); el.className = 'history-item';
             el.style.cursor = 'pointer';
-            const badge = e.file_type === 'python' ? 'PY' : 'DOCX';
+            const badge = badgeFor(e);
             const d = new Date(e.timestamp);
             const ds = d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
             const s = e.summary || {};
@@ -727,4 +1232,17 @@
         document.body.removeChild(a); URL.revokeObjectURL(u);
     }
     function esc(t) { const d=document.createElement('div'); d.textContent=String(t); return d.innerHTML; }
+
+    // ─── Onboarding (first visit) ───
+    const ONBOARD_KEY = 'smartdoc-onboarded';
+    if (!localStorage.getItem(ONBOARD_KEY)) {
+        const onboardModal = $('onboarding-modal');
+        if (onboardModal) {
+            onboardModal.hidden = false;
+            const dismiss = () => { onboardModal.hidden = true; localStorage.setItem(ONBOARD_KEY, '1'); };
+            $('onboarding-close').addEventListener('click', dismiss);
+            $('onboarding-start').addEventListener('click', dismiss);
+            onboardModal.addEventListener('click', e => { if (e.target === onboardModal) dismiss(); });
+        }
+    }
 })();
